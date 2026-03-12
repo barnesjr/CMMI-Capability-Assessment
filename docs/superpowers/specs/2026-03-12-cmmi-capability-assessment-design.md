@@ -24,11 +24,14 @@ framework/assessment-framework.json (read-only)
 1. **Load:** Frontend fetches `GET /api/assessment` + `GET /api/framework` in parallel on mount.
 2. **Edit:** User changes flow through `store.tsx` → `structuredClone` deep copy → debounced 300ms → `PUT /api/assessment`.
 3. **Save:** Backend writes `data.json.bak` first, then writes to temp file → `os.replace()` atomic swap to `data.json`.
-4. **Export:** Frontend `POST /api/export/{type}` → backend generates file in `exports/` → returns `{"filenames": ["path1", ...]}`.
+4. **Load fallback:** Try `data.json` → fall back to `data.json.bak` → create fresh assessment from framework.
+5. **Export:** Frontend `POST /api/export/{type}` → backend generates file in `exports/` → returns `{"filenames": ["path1", ...]}`.
 
 ### State Management
 
-React Context + `useReducer` pattern. Single `updateData(draft => { ... })` function that:
+React Context + `useReducer` pattern. `useStore()` hook returns `{data, framework, loading, saveStatus, updateData}`.
+
+`updateData(draft => { ... })` function:
 - Clones state with `structuredClone`
 - Applies mutation to clone
 - Triggers debounced save (300ms)
@@ -45,8 +48,9 @@ React Context + `useReducer` pattern. Single `updateData(draft => { ... })` func
 
 ### Server Behavior
 
-- **Port discovery:** Try 8751-8760, use first available.
+- **Port discovery:** Try 8751-8760, use first available. Log port diagnostics (`lsof`/`netstat`) if all ports busy.
 - **Auto-launch browser:** `webbrowser.open(url)` after server starts.
+- **Static files:** Serve built frontend from `backend/static/`.
 - **SPA fallback:** Non-`/api/*` GET requests serve `index.html`.
 - **No CORS:** Vite dev proxy handles `/api` in development.
 
@@ -80,7 +84,15 @@ CategoryGroup (4: Doing, Managing, Enabling, Improving)
 - **Score labels:** 1=Initial, 2=Managed, 3=Defined, 4=Quantitatively Managed, 5=Optimizing
 - **Score colors:** 1=#ef4444, 2=#f97316, 3=#eab308, 4=#84cc16, 5=#22c55e
 
-### Score Aggregation
+### Scoring Engine (`frontend/src/scoring.ts`)
+
+```typescript
+averageScore(items: AssessmentItem[]): number          // Mean of scored items (exclude N/A)
+capabilityAreaScore(ca: CapabilityArea): number         // Average of CA items
+practiceAreaScore(pa: PracticeArea): number             // Average of all items in practice area
+weightedCompositeScore(data: AssessmentData): number    // Σ(practiceAreaScore × weight) / Σ(weights)
+overallCompletion(data: AssessmentData): {scored: number, total: number}
+```
 
 - Capability area score = mean of scored items (excluding N/A)
 - Practice area score = mean of all scored items across its capability areas
@@ -114,18 +126,23 @@ CategoryGroup (4: Doing, Managing, Enabling, Improving)
 
 ### Backend Models (Pydantic v2)
 
-```
-EvidenceReference { document, section, date }
-AssessmentItem { id, text, score(1-5|null), na, na_justification, confidence, notes, evidence_references[], attachments[] }
-CapabilityArea { id, name, items[] }
-PracticeArea { id, name, weight, capability_areas[] }
-CategoryGroup { id, name, practice_areas[] }
-SvcSection { id, name, capability_areas[] }
-SvcExtension { enabled, sections[] }
-ClientInfo { name, industry, assessment_date, assessor }
-AssessmentMetadata { framework_version, tool_version, last_modified }
-ScoringConfig { weighting_model, practice_area_weights{}, custom_weights{} }
-AssessmentData { client_info, assessment_metadata, scoring_config, category_groups[], svc_enabled, svc_extension, target_scores{} }
+```python
+EvidenceReference { document: str="", section: str="", date: str="" }
+AssessmentItem { id: str, text: str, score: Optional[int]=None (ge=1,le=5), na: bool=False,
+                 na_justification: Optional[str]=None, confidence: Optional[str]=None,
+                 notes: str="", evidence_references: list[EvidenceReference]=[], attachments: list[str]=[] }
+CapabilityArea { id: str, name: str, items: list[AssessmentItem]=[] }
+PracticeArea { id: str, name: str, weight: float, capability_areas: list[CapabilityArea]=[] }
+CategoryGroup { id: str, name: str, practice_areas: list[PracticeArea]=[] }
+SvcSection { id: str, name: str, capability_areas: list[CapabilityArea]=[] }
+SvcExtension { enabled: bool=False, sections: list[SvcSection]=[] }
+ClientInfo { name: str="", industry: str="", assessment_date: str="", assessor: str="" }
+AssessmentMetadata { framework_version: str="1.0", tool_version: str="1.0.0", last_modified: str="" }
+ScoringConfig { weighting_model: str="balanced", practice_area_weights: dict[str,float]={},
+                custom_weights: Optional[dict[str,float]]=None }
+AssessmentData { client_info, assessment_metadata, scoring_config, category_groups: list[CategoryGroup]=[],
+                 svc_enabled: bool=False, svc_extension: Optional[SvcExtension]=None,
+                 target_scores: dict[str,float]={} }
 ```
 
 ### Frontend Interfaces (TypeScript)
@@ -207,22 +224,23 @@ Fuzzy search across all practice areas + capability areas. Shows score + complet
 
 | # | Name | Format | Content |
 |---|------|--------|---------|
-| 1 | Findings | DOCX | Per-practice-area item breakdown with scores, notes, evidence |
+| 1 | Assessment Findings | DOCX | Per-practice-area item breakdown with scores, notes, evidence |
 | 2 | Executive Summary | DOCX | Composite score, embedded radar chart PNG, top gaps |
-| 3 | Gap Analysis | DOCX | Current vs target matrix, remediation timeline |
-| 4 | Workbook | XLSX | Multi-sheet: Dashboard + per-practice-area sheets |
-| 5 | Out-Brief | PPTX | Title + overview + radar + per-category-group slides |
-| 6 | Heatmap | XLSX | Practice Area × Capability Area color-coded grid |
-| 7 | Quick Wins | DOCX | Low-score, high-impact items prioritized |
+| 3 | Gap Analysis & Roadmap | DOCX | Current vs target matrix, remediation timeline |
+| 4 | Scored Assessment Workbook | XLSX | Multi-sheet: Dashboard + per-practice-area sheets |
+| 5 | Out-Brief Presentation | PPTX | Title + overview + radar + per-category-group slides |
+| 6 | Maturity Heatmap | XLSX | Practice Area × Capability Area color-coded grid |
+| 7 | Quick Wins Report | DOCX | Low-score, high-impact items prioritized |
 | 8 | CMMI Roadmap | DOCX | Level-by-level progression plan with milestones |
-| 9 | SVC Alignment | DOCX | SVC scores → service delivery maturity (SVC enabled only) |
+| 9 | SVC Alignment Report | DOCX | SVC scores → service delivery maturity (SVC enabled only) |
 
 ### Export Details
 
 - **Filenames:** `D-XX_Name_YYYY-MM-DD_HHMMSS.ext`
 - **Radar chart:** matplotlib Agg backend → `exports/radar_chart.png` (6x6in, 150 DPI)
 - **Template fallback:** Use `templates/<name>-template.<ext>` if exists, otherwise auto-generate
-- **"Export All":** Generates all applicable (skips SVC Alignment if SVC disabled)
+- **"Export All":** Type `"all"` generates all applicable exports (skips SVC Alignment if SVC disabled)
+- **Valid types:** `["findings","executive-summary","gap-analysis","workbook","outbrief","heatmap","quick-wins","cmmi-roadmap","svc-alignment","all"]`
 - **Error codes:** 400 invalid type, 404 framework missing, 500 server error
 
 ### Build Pipeline (`build.py`)
@@ -275,7 +293,91 @@ CMMIAssessment/
 
 ---
 
-## 6. Implementation Order
+## 6. Validation Rules (`frontend/src/validation.ts`)
+
+| Rule | Severity | Condition |
+|------|----------|-----------|
+| `unscored` | info | Item has no score and is not N/A |
+| `na-no-justification` | error | N/A checked but no justification |
+| `scored-no-notes` | warning | Score assigned but notes empty |
+| `low-confidence-no-notes` | warning | Confidence = "Low" with no notes |
+
+---
+
+## 7. Project Structure
+
+```
+cmmi-assessment/
+├── backend/
+│   ├── __init__.py
+│   ├── main.py                        # FastAPI app — serves API + built frontend
+│   ├── models.py                      # Pydantic data models
+│   ├── data_manager.py                # Load/save assessment + framework JSON
+│   ├── export_engine.py               # All export generators
+│   └── static/                        # Vite build output (generated)
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.ts                 # Proxy /api → backend in dev
+│   ├── tailwind.config.ts             # Design tokens from Design-guide.md
+│   ├── tsconfig.json
+│   ├── tsconfig.app.json
+│   ├── index.html
+│   └── src/
+│       ├── main.tsx                   # React entry point
+│       ├── App.tsx                    # Router + layout (sidebar + content)
+│       ├── store.tsx                  # React Context state management
+│       ├── types.ts                   # TypeScript interfaces + constants
+│       ├── api.ts                     # Fetch client for /api/*
+│       ├── scoring.ts                 # Score calculations
+│       ├── validation.ts              # Assessment validation rules
+│       ├── hooks/
+│       │   └── useNextUnscored.ts     # Cmd+Right jump-to-next-unscored logic
+│       ├── components/
+│       │   ├── Sidebar.tsx            # Collapsible nav tree with progress rings
+│       │   ├── AssessmentItemCard.tsx  # Item card with scoring + notes
+│       │   ├── ScoringWidget.tsx      # 1-5 radio buttons + N/A toggle
+│       │   ├── ConfidenceWidget.tsx   # High/Medium/Low selector
+│       │   ├── Breadcrumb.tsx         # Path breadcrumbs
+│       │   ├── StatsFooter.tsx        # Progress bar + save status
+│       │   ├── CommandPalette.tsx     # Cmd+K quick navigation
+│       │   └── OnboardingTooltip.tsx  # First-time hints
+│       └── pages/
+│           ├── ClientInfo.tsx         # Client name, industry, date, assessor
+│           ├── Dashboard.tsx          # Composite score, radar chart, progress
+│           ├── PracticeAreaSummary.tsx # Practice area summary view
+│           ├── CapabilityArea.tsx     # Item-level scoring (main work page)
+│           ├── SvcSummary.tsx         # CMMI-SVC extension overview
+│           ├── SvcSection.tsx         # CMMI-SVC section items
+│           ├── Export.tsx             # Export deliverables UI
+│           ├── Settings.tsx           # Weighting model, target scores, custom sliders
+│           └── Help.tsx               # Keyboard shortcuts, documentation
+├── framework/
+│   └── assessment-framework.json      # Read-only framework definition
+├── templates/                         # (Optional) Word/Excel/PowerPoint templates
+├── exports/                           # Generated deliverables (created at runtime)
+├── build.py                           # Build orchestration script
+├── assessment-tool-macos.spec         # PyInstaller spec — macOS
+├── assessment-tool-windows.spec       # PyInstaller spec — Windows
+├── requirements.txt                   # Python dependencies
+├── data.json                          # Persistent assessment data (auto-created)
+├── data.json.bak                      # Backup (auto-created on save)
+├── README.txt                         # End-user documentation
+└── .gitignore
+```
+
+### Identity Constants
+
+```
+"CMMI Capability Assessment Tool"     # Tool display name
+"cmmi-assessment"                     # Tool slug (filenames, dist folder)
+"CMMI V2.0"                          # Framework alignment
+"cmmi-sidebar"                       # localStorage sidebar key
+8751                                  # Default port (auto-scans 8751-8760)
+```
+
+---
+
+## 8. Implementation Order
 
 8 sequential chunks, each fully functional before proceeding:
 
@@ -290,7 +392,7 @@ CMMIAssessment/
 
 ---
 
-## 7. Design Decisions
+## 9. Design Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
@@ -304,7 +406,7 @@ CMMIAssessment/
 
 ---
 
-## 8. Tech Stack
+## 10. Tech Stack
 
 ### Backend
 Python 3, FastAPI, Uvicorn, Pydantic v2, openpyxl, docxtpl, python-pptx, matplotlib (Agg), PyInstaller
