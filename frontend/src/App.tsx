@@ -8,6 +8,7 @@ import PracticeAreaSummary from './pages/PracticeAreaSummary';
 import CapabilityAreaPage from './pages/CapabilityArea';
 import SvcSummary from './pages/SvcSummary';
 import SvcSection from './pages/SvcSection';
+import Export from './pages/Export';
 
 function AppContent() {
   const { loading } = useStore();
@@ -33,6 +34,7 @@ function AppContent() {
             <Route path="/svc" element={<SvcSummary />} />
             <Route path="/svc/:sectionId" element={<SvcSection />} />
             <Route path="/svc/:sectionId/:areaId" element={<SvcSection />} />
+            <Route path="/export" element={<Export />} />
           </Routes>
         </div>
         <StatsFooter />
