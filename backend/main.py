@@ -13,9 +13,11 @@ import uvicorn
 try:
     from .models import AssessmentData
     from .data_manager import DataManager
+    from .export_engine import ExportEngine
 except ImportError:
     from models import AssessmentData
     from data_manager import DataManager
+    from export_engine import ExportEngine
 
 
 def get_base_dir() -> str:
@@ -36,6 +38,7 @@ RESOURCE_DIR = get_resource_dir()
 app = FastAPI(title="CMMI Capability Assessment Tool", version="1.0.0")
 
 data_manager = DataManager(BASE_DIR, resource_dir=RESOURCE_DIR)
+export_engine = ExportEngine(BASE_DIR, resource_dir=RESOURCE_DIR)
 
 
 @app.get("/api/health")
@@ -68,6 +71,41 @@ async def get_framework():
         return fw
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Framework file not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/export/{export_type}")
+async def export_deliverable(export_type: str):
+    valid_types = [
+        "findings", "executive-summary", "gap-analysis", "workbook",
+        "outbrief", "heatmap", "quick-wins", "cmmi-roadmap",
+        "svc-alignment", "all",
+    ]
+    if export_type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"Unknown export type: {export_type}")
+    try:
+        data = data_manager.load_assessment()
+        method_map = {
+            "findings": export_engine.export_findings,
+            "executive-summary": export_engine.export_executive_summary,
+            "gap-analysis": export_engine.export_gap_analysis,
+            "workbook": export_engine.export_workbook,
+            "outbrief": export_engine.export_outbrief,
+            "heatmap": export_engine.export_heatmap,
+            "quick-wins": export_engine.export_quick_wins,
+            "cmmi-roadmap": export_engine.export_cmmi_roadmap,
+            "svc-alignment": export_engine.export_svc_alignment,
+        }
+        if export_type == "svc-alignment" and not data.svc_enabled:
+            raise HTTPException(status_code=400, detail="SVC extension is not enabled")
+        if export_type == "all":
+            filenames = export_engine.export_all(data)
+        else:
+            filenames = [method_map[export_type](data)]
+        return {"filenames": filenames}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
