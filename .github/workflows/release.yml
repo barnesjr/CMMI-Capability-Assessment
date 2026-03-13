@@ -1,84 +1,122 @@
-name: Release
+name: Build & Release
+
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
 
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
-            spec: assessment-tool-macos.spec
-            artifact: CMMIAssessment-macOS
-            exe_name: assessment-tool
+            platform: macos
+            artifact: CMMIAssessment-macos
           - os: windows-latest
-            spec: assessment-tool-windows.spec
-            artifact: CMMIAssessment-Windows
-            exe_name: assessment-tool.exe
+            platform: windows
+            artifact: CMMIAssessment-windows
+
     runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: pip install -r requirements.txt
-      - run: cd frontend && npm ci && npm run build
-      - run: python -m PyInstaller --distpath dist --workpath build_temp ${{ matrix.spec }}
-      - name: Assemble distribution ZIP
-        shell: python
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Python dependencies
         run: |
-          import shutil, os
-          from pathlib import Path
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
 
-          dist_dir = Path("dist/CMMIAssessment")
-          if dist_dir.exists():
-              shutil.rmtree(dist_dir)
-          dist_dir.mkdir(parents=True)
+      - name: Install and build frontend
+        working-directory: frontend
+        run: npm ci && npm run build
 
-          exe = Path("dist/${{ matrix.exe_name }}")
-          if exe.exists():
-              shutil.copy2(str(exe), str(dist_dir / exe.name))
+      - name: Build executable (macOS)
+        if: matrix.platform == 'macos'
+        run: python -m PyInstaller --distpath dist --workpath build_temp assessment-tool-macos.spec
 
-          if Path("README.txt").exists():
-              shutil.copy2("README.txt", str(dist_dir / "README.txt"))
-          if Path("framework").is_dir():
-              shutil.copytree("framework", str(dist_dir / "framework"))
-          if Path("templates").is_dir():
-              shutil.copytree("templates", str(dist_dir / "templates"))
-          else:
-              (dist_dir / "templates").mkdir()
-          (dist_dir / "exports").mkdir()
+      - name: Build executable (Windows)
+        if: matrix.platform == 'windows'
+        run: python -m PyInstaller --distpath dist --workpath build_temp assessment-tool-windows.spec
 
-          shutil.make_archive("dist/CMMIAssessment", "zip", "dist", "CMMIAssessment")
-          size_mb = os.path.getsize("dist/CMMIAssessment.zip") / (1024 * 1024)
-          print(f"Distribution ZIP: dist/CMMIAssessment.zip ({size_mb:.1f} MB)")
+      - name: Assemble distribution (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          mkdir -p dist/${{ matrix.artifact }}
+          cp dist/assessment-tool dist/${{ matrix.artifact }}/
+          chmod +x dist/${{ matrix.artifact }}/assessment-tool
+          cp -r framework dist/${{ matrix.artifact }}/
+          if [ -d templates ]; then cp -r templates dist/${{ matrix.artifact }}/; else mkdir dist/${{ matrix.artifact }}/templates; fi
+          if [ -f README.txt ]; then cp README.txt dist/${{ matrix.artifact }}/; fi
+          mkdir -p dist/${{ matrix.artifact }}/exports
+          VERSION=${GITHUB_REF#refs/tags/}
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then VERSION="${{ github.event.inputs.tag }}"; fi
+          cd dist && zip -r ${{ matrix.artifact }}-${VERSION}.zip ${{ matrix.artifact }}
+
+      - name: Assemble distribution (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist/${{ matrix.artifact }}"
+          Copy-Item "dist/assessment-tool.exe" "dist/${{ matrix.artifact }}/"
+          Copy-Item -Recurse "framework" "dist/${{ matrix.artifact }}/framework"
+          if (Test-Path "templates") { Copy-Item -Recurse "templates" "dist/${{ matrix.artifact }}/templates" } else { New-Item -ItemType Directory -Force -Path "dist/${{ matrix.artifact }}/templates" }
+          if (Test-Path "README.txt") { Copy-Item "README.txt" "dist/${{ matrix.artifact }}/" }
+          New-Item -ItemType Directory -Force -Path "dist/${{ matrix.artifact }}/exports"
+          $version = if ("${{ github.event_name }}" -eq "workflow_dispatch") { "${{ github.event.inputs.tag }}" } else { "${{ github.ref }}".Replace("refs/tags/","") }
+          Compress-Archive -Path "dist/${{ matrix.artifact }}" -DestinationPath "dist/${{ matrix.artifact }}-${version}.zip"
+
+      - name: Find ZIP
+        id: zip
+        shell: bash
+        run: echo "path=$(ls dist/${{ matrix.artifact }}-*.zip)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}-${{ github.ref_name }}
-          path: dist/CMMIAssessment.zip
+          name: ${{ matrix.artifact }}
+          path: ${{ steps.zip.outputs.path }}
 
   release:
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Rename artifacts with platform suffix
+
+      - name: Determine tag
+        id: tag
         run: |
-          mkdir -p release
-          for dir in artifacts/CMMIAssessment-*; do
-            platform=$(basename "$dir" | sed "s/CMMIAssessment-//" | sed "s/-v.*//")
-            cp "$dir/CMMIAssessment.zip" "release/CMMIAssessment-${platform}-${{ github.ref_name }}.zip"
-          done
-          ls -la release/
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: softprops/action-gh-release@v2
         with:
-          draft: false
-          files: release/*.zip
+          tag_name: ${{ steps.tag.outputs.version }}
+          name: CMMI Capability Assessment Tool ${{ steps.tag.outputs.version }}
+          draft: true
+          generate_release_notes: true
+          files: |
+            artifacts/CMMIAssessment-macos/CMMIAssessment-macos-${{ steps.tag.outputs.version }}.zip
+            artifacts/CMMIAssessment-windows/CMMIAssessment-windows-${{ steps.tag.outputs.version }}.zip

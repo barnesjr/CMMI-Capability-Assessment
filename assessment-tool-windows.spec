@@ -1,38 +1,61 @@
-# -*- mode: python ; coding: utf-8 -*-
+# assessment-tool-windows.spec
 import os
+from pathlib import Path
+
+block_cipher = None
+BASE = Path(SPECPATH)
 
 datas = [
-    ('backend/static', 'static'),
-    ('framework', 'framework'),
+    (str(BASE / 'backend' / 'static'), 'static'),
+    (str(BASE / 'framework'), 'framework'),
 ]
-if os.path.isdir('templates'):
-    datas.append(('templates', 'templates'))
+if os.path.isdir(str(BASE / 'templates')):
+    datas.append((str(BASE / 'templates'), 'templates'))
 
 a = Analysis(
-    ['backend/main.py'],
-    pathex=[],
+    [str(BASE / 'backend' / 'main.py')],
+    pathex=[str(BASE), str(BASE / 'backend')],
     binaries=[],
     datas=datas,
     hiddenimports=[
-        'uvicorn.logging', 'uvicorn.loops.auto',
-        'uvicorn.protocols.http.auto', 'uvicorn.protocols.http.h11_impl',
+        'uvicorn.logging',
+        'uvicorn.protocols.http',
+        'uvicorn.protocols.http.auto',
+        'uvicorn.protocols.http.h11_impl',
+        'uvicorn.protocols.websockets',
         'uvicorn.protocols.websockets.auto',
-        'uvicorn.lifespan.on', 'uvicorn.lifespan.off',
-        'email.mime.multipart', 'email.mime.text',
+        'uvicorn.lifespan',
+        'uvicorn.lifespan.on',
+        'uvicorn.lifespan.off',
+        'email.mime.multipart',
+        'email.mime.text',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
+    cipher=block_cipher,
     noarchive=False,
 )
-pyz = PYZ(a.pure)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
 exe = EXE(
-    pyz, a.scripts, a.binaries, a.datas, [],
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
     name='assessment-tool',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
     console=True,
+    disable_windowed_traceback=False,
+    codesign_identity=None,
+    entitlements_file=None,
 )
