@@ -10,6 +10,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import uvicorn
 
+try:
+    from .models import AssessmentData
+    from .data_manager import DataManager
+except ImportError:
+    from models import AssessmentData
+    from data_manager import DataManager
+
 
 def get_base_dir() -> str:
     if getattr(sys, "frozen", False):
@@ -28,10 +35,41 @@ RESOURCE_DIR = get_resource_dir()
 
 app = FastAPI(title="CMMI Capability Assessment Tool", version="1.0.0")
 
+data_manager = DataManager(BASE_DIR, resource_dir=RESOURCE_DIR)
+
 
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok"}
+
+
+@app.get("/api/assessment")
+async def get_assessment():
+    try:
+        data = data_manager.load_assessment()
+        return data.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/assessment")
+async def save_assessment(data: AssessmentData):
+    try:
+        data_manager.save_assessment(data)
+        return {"status": "saved"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/framework")
+async def get_framework():
+    try:
+        fw = data_manager.load_framework()
+        return fw
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Framework file not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Static file serving
