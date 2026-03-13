@@ -11,9 +11,11 @@ jobs:
           - os: macos-latest
             spec: assessment-tool-macos.spec
             artifact: CMMIAssessment-macOS
+            exe_name: assessment-tool
           - os: windows-latest
             spec: assessment-tool-windows.spec
             artifact: CMMIAssessment-Windows
+            exe_name: assessment-tool.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +29,33 @@ jobs:
       - run: cd frontend && npm ci && npm run build
       - run: python -m PyInstaller --distpath dist --workpath build_temp ${{ matrix.spec }}
       - name: Assemble distribution ZIP
-        run: python build.py --dist
+        shell: python
+        run: |
+          import shutil, os
+          from pathlib import Path
+
+          dist_dir = Path("dist/CMMIAssessment")
+          if dist_dir.exists():
+              shutil.rmtree(dist_dir)
+          dist_dir.mkdir(parents=True)
+
+          exe = Path("dist/${{ matrix.exe_name }}")
+          if exe.exists():
+              shutil.copy2(str(exe), str(dist_dir / exe.name))
+
+          if Path("README.txt").exists():
+              shutil.copy2("README.txt", str(dist_dir / "README.txt"))
+          if Path("framework").is_dir():
+              shutil.copytree("framework", str(dist_dir / "framework"))
+          if Path("templates").is_dir():
+              shutil.copytree("templates", str(dist_dir / "templates"))
+          else:
+              (dist_dir / "templates").mkdir()
+          (dist_dir / "exports").mkdir()
+
+          shutil.make_archive("dist/CMMIAssessment", "zip", "dist", "CMMIAssessment")
+          size_mb = os.path.getsize("dist/CMMIAssessment.zip") / (1024 * 1024)
+          print(f"Distribution ZIP: dist/CMMIAssessment.zip ({size_mb:.1f} MB)")
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}-${{ github.ref_name }}
@@ -49,6 +77,7 @@ jobs:
             platform=$(basename "$dir" | sed "s/CMMIAssessment-//" | sed "s/-v.*//")
             cp "$dir/CMMIAssessment.zip" "release/CMMIAssessment-${platform}-${{ github.ref_name }}.zip"
           done
+          ls -la release/
       - uses: softprops/action-gh-release@v2
         with:
           draft: false
