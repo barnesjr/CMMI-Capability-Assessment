@@ -3,6 +3,8 @@ import { StoreProvider, useStore } from './store';
 import Sidebar from './components/Sidebar';
 import ClientInfo from './pages/ClientInfo';
 import Dashboard from './pages/Dashboard';
+import PracticeAreaSummary from './pages/PracticeAreaSummary';
+import CapabilityAreaPage from './pages/CapabilityArea';
 
 function AppContent() {
   const { loading } = useStore();
@@ -22,6 +24,8 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<ClientInfo />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/practice-area/:entityId" element={<PracticeAreaSummary />} />
+          <Route path="/practice-area/:entityId/:areaId" element={<CapabilityAreaPage />} />
         </Routes>
       </main>
     </div>
