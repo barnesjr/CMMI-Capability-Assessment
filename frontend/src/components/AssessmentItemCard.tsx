@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, X } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { ChevronDown, ChevronRight, Plus, X, AlertTriangle, Info } from 'lucide-react';
 import { ScoringWidget } from './ScoringWidget';
 import { ConfidenceWidget } from './ConfidenceWidget';
+import { getItemValidation } from '../validation';
 import type { AssessmentItem, EvidenceReference, FrameworkItem } from '../types';
 
 interface AssessmentItemCardProps {
@@ -16,10 +17,14 @@ export function AssessmentItemCard({ item, frameworkItem, onUpdate, focused, onF
   const [expanded, setExpanded] = useState(false);
   const [showRubric, setShowRubric] = useState(false);
 
+  const issues = useMemo(() => getItemValidation(item), [item]);
+  const hasError = issues.some((i) => i.severity === 'error');
+  const hasWarning = issues.some((i) => i.severity === 'warning');
+
   return (
     <div
       className={`border rounded-xl bg-surface-medium transition-colors hover:border-accent/40 ${
-        focused ? 'ring-2 ring-accent/50 border-accent/40' : 'border-border-gray/40'
+        hasError ? 'border-red-500/60' : focused ? 'ring-2 ring-accent/50 border-accent/40' : 'border-border-gray/40'
       }`}
       onClick={onFocus}
     >
@@ -34,7 +39,12 @@ export function AssessmentItemCard({ item, frameworkItem, onUpdate, focused, onF
 
         <div className="flex-1 min-w-0">
           <p className="text-[13px] text-text-primary leading-relaxed">{item.text}</p>
-          <span className="text-[10px] text-text-secondary/50 font-mono mt-1 inline-block">{item.id}</span>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[10px] text-text-secondary/50 font-mono">{item.id}</span>
+            {hasError && <span className="text-red-400" title="Has validation errors"><AlertTriangle size={11} /></span>}
+            {hasWarning && !hasError && <span className="text-amber-400" title="Has warnings"><AlertTriangle size={11} /></span>}
+            {!hasError && !hasWarning && issues.length > 0 && <span className="text-blue-400" title="Info"><Info size={11} /></span>}
+          </div>
         </div>
 
         <div className="flex items-center gap-4 shrink-0">
@@ -55,6 +65,24 @@ export function AssessmentItemCard({ item, frameworkItem, onUpdate, focused, onF
           />
         </div>
       </div>
+
+      {/* Validation messages */}
+      {issues.filter((i) => i.severity !== 'info').length > 0 && (
+        <div className="px-5 pb-3 pl-12 flex flex-wrap gap-2">
+          {issues.filter((i) => i.severity !== 'info').map((issue) => (
+            <span
+              key={issue.rule}
+              className={`text-[10px] px-2 py-0.5 rounded-full ${
+                issue.severity === 'error'
+                  ? 'bg-red-500/15 text-red-400'
+                  : 'bg-amber-500/15 text-amber-400'
+              }`}
+            >
+              {issue.message}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* N/A justification inline (when collapsed) */}
       {item.na && !expanded && (
