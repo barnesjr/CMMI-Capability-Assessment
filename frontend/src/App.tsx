@@ -6,6 +6,8 @@ import ClientInfo from './pages/ClientInfo';
 import Dashboard from './pages/Dashboard';
 import PracticeAreaSummary from './pages/PracticeAreaSummary';
 import CapabilityAreaPage from './pages/CapabilityArea';
+import SvcSummary from './pages/SvcSummary';
+import SvcSection from './pages/SvcSection';
 
 function AppContent() {
   const { loading } = useStore();
@@ -28,6 +30,9 @@ function AppContent() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/practice-area/:entityId" element={<PracticeAreaSummary />} />
             <Route path="/practice-area/:entityId/:areaId" element={<CapabilityAreaPage />} />
+            <Route path="/svc" element={<SvcSummary />} />
+            <Route path="/svc/:sectionId" element={<SvcSection />} />
+            <Route path="/svc/:sectionId/:areaId" element={<SvcSection />} />
           </Routes>
         </div>
         <StatsFooter />
