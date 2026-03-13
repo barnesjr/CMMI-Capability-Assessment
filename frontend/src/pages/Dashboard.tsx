@@ -216,7 +216,7 @@ export default function Dashboard() {
                     fontSize: '12px',
                   }}
                   labelStyle={{ color: '#D0D0D0' }}
-                  formatter={(value: number) => [value.toFixed(2), 'Score']}
+                  formatter={(value) => [(value as number).toFixed(2), 'Score']}
                 />
                 <Bar dataKey="score" name="Score" radius={[0, 4, 4, 0]} barSize={10}>
                   {barData.map((entry, index) => (

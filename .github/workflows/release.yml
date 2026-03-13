@@ -26,12 +26,12 @@ jobs:
       - run: pip install -r requirements.txt
       - run: cd frontend && npm ci && npm run build
       - run: python -m PyInstaller --distpath dist --workpath build_temp ${{ matrix.spec }}
-      - run: python build.py --dist
-        if: matrix.os == 'macos-latest'
+      - name: Assemble distribution ZIP
+        run: python build.py --dist
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}-${{ github.ref_name }}
-          path: dist/CMMIAssessment*
+          path: dist/CMMIAssessment.zip
 
   release:
     needs: build
@@ -40,7 +40,16 @@ jobs:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Rename artifacts with platform suffix
+        run: |
+          mkdir -p release
+          for dir in artifacts/CMMIAssessment-*; do
+            platform=$(basename "$dir" | sed "s/CMMIAssessment-//" | sed "s/-v.*//")
+            cp "$dir/CMMIAssessment.zip" "release/CMMIAssessment-${platform}-${{ github.ref_name }}.zip"
+          done
       - uses: softprops/action-gh-release@v2
         with:
-          draft: true
-          files: '**/*'
+          draft: false
+          files: release/*.zip
