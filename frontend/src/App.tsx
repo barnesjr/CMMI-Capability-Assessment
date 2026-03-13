@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { StoreProvider, useStore } from './store';
 import Sidebar from './components/Sidebar';
+import StatsFooter from './components/StatsFooter';
 import ClientInfo from './pages/ClientInfo';
 import Dashboard from './pages/Dashboard';
 import PracticeAreaSummary from './pages/PracticeAreaSummary';
@@ -20,13 +21,16 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-page-bg flex">
       <Sidebar />
-      <main className="flex-1 overflow-auto">
-        <Routes>
-          <Route path="/" element={<ClientInfo />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/practice-area/:entityId" element={<PracticeAreaSummary />} />
-          <Route path="/practice-area/:entityId/:areaId" element={<CapabilityAreaPage />} />
-        </Routes>
+      <main className="flex-1 overflow-auto flex flex-col">
+        <div className="flex-1 overflow-auto">
+          <Routes>
+            <Route path="/" element={<ClientInfo />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/practice-area/:entityId" element={<PracticeAreaSummary />} />
+            <Route path="/practice-area/:entityId/:areaId" element={<CapabilityAreaPage />} />
+          </Routes>
+        </div>
+        <StatsFooter />
       </main>
     </div>
   );
